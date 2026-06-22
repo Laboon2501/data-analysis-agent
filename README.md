@@ -1,403 +1,441 @@
-# Data Analysis Agent LangGraph
+# LangGraph Data Analysis Agent
 
-This repository is a LangGraph rewrite skeleton for a structured data-analysis
-agent inspired by `Zafer-Liu/Data-Analysis-Agent`. It is not a general chat bot:
-the system is organized around explicit workflows for database profiling,
-direct analysis, open exploration, chart artifacts, report/export confirmation,
-job execution, SSE events, and offline regression evals.
+> 基于 LangGraph 重写的数据分析 Agent 技术预览版。<br>
+> 支持 SQL / SQLite 数据源、CSV / Excel / Parquet 文件数据源、字段问答、明确问题分析、开放探索、图表 artifact、Report / Excel / PPT / Dashboard 导出、SSE 事件流、Web 工作台、会话历史、可选 LLM / MCP / Celery 路径。
 
-The current implementation is a v0.2.0-alpha technical preview and is
-intentionally rule-first. LLM, MCP, Redis,
-Postgres, Celery, and external provider integrations are available as adapters
-or manual smoke-test paths, but default tests and demo commands do not require
-real external services or network calls.
+当前代码版本：`0.2.0a0`<br>
+发布标签写法：`v0.2.0-alpha / technical preview`<br>
+Python 要求：`>=3.11,<3.14`
 
-Runtime configuration is centralized in `app/config.py`. Defaults keep the
-system on the in-memory backend; Redis, Celery, Postgres checkpoints, file
-artifacts, datasource URLs, and LLM provider placeholders are opt-in through
-environment variables or script flags. Start from `.env.example` for local
-integration work, but do not commit real secrets.
+## 目录
 
-## Architecture Overview
+- [项目定位](#项目定位)
+- [快速开始](#快速开始)
+- [Web 工作台](#web-工作台)
+- [API 端点](#api-端点)
+- [环境变量](#环境变量)
+- [数据源](#数据源)
+- [LLM 配置](#llm-配置)
+- [典型流程](#典型流程)
+- [评估与测试](#评估与测试)
+- [MCP](#mcp)
+- [Celery / Redis / Postgres](#celery--redis--postgres)
+- [项目结构](#项目结构)
+- [安全边界](#安全边界)
+- [已知限制](#已知限制)
 
-The project uses LangGraph workflows with a shared Pydantic `AgentState`.
-Core graph families:
+## 项目定位
 
-- Context Manager: builds and caches `DatabaseProfile` from datasource schema.
-- Direct Analysis: interprets a clear question, drafts guarded SQL, executes it,
-  creates chart artifacts, writes insights, and builds an `AnalysisPackage`.
-- Schema QA / Data Inspection: answers field, column, metric, dimension, and
-  "what can this file analyze" questions from `DatabaseProfile` without running
-  aggregate SQL.
-- Open Exploration: creates candidate topics from `DatabaseProfile`, ranks them,
-  runs a small set of simple analyses, and summarizes findings.
-- Report Export: generates an outline first, waits for explicit confirmation,
-  then uses a fast-path for report, PPT, Excel, or dashboard artifacts.
-
-More detail is in [docs/architecture.md](docs/architecture.md). API details are
-in [docs/api.md](docs/api.md), event contracts are in [docs/events.md](docs/events.md),
-frontend flow notes are in [docs/frontend_flow.md](docs/frontend_flow.md), and
-deployment notes are in [docs/deployment.md](docs/deployment.md). Release
-readiness notes for this alpha are in
-[docs/release_notes_v0.2.0-alpha.md](docs/release_notes_v0.2.0-alpha.md).
-
-## Directory Structure
+这个项目是结构化数据分析 Agent。核心目标是让用户对数据库或文件数据源进行自然语言分析：
 
 ```text
-app/                 FastAPI app, harness, worker backends
-datasource/          Datasource protocol and SQLAlchemy datasource
-demo/                Ecommerce demo SQL fixture and demo notes
-docs/                API, events, architecture, commands, local run docs
-evals/               Offline eval cases, runner, and metrics
-examples/client/     Minimal stdlib API client examples
-examples/web/        Static browser UI for local FastAPI integration
-graphs/              LangGraph workflow builders
-guards/              SQL, output, retry, timeout, cancel policies
-llm/                 LLM protocol, fake client, OpenAI-compatible adapter
-mcp/                 MCP config, transport, manager, adapter, and errors
-nodes/               Small workflow nodes used by graphs
-persistence/         In-memory and optional external store interfaces
-prompts/             Narrow prompt files for optional LLM strategies
-schemas/             Pydantic state and domain schemas
-scripts/             Local smoke, demo, API, and integration scripts
-tests/               Unit, graph, API, eval, and script tests
-tools/               Registry, schema, SQL, chart, and export tools
+近 12 个月销售趋势怎么样？
+各品类 GMV Top 5 是什么？
+这个表有哪些字段？
+帮我看看这个数据有什么可以分析的
+帮我生成报告 / PPT / Excel / Dashboard
 ```
 
-## Quick Start
+系统采用显式 LangGraph 工作流。
 
-Use Python 3.11.x for local development.
+核心构件：
+
+```text
+FastAPI API
++ WorkerBackend / JobRunner
++ LangGraph workflows
++ Typed AgentState
++ DatabaseProfile
++ SQLGuard
++ ToolRegistry
++ ArtifactStore
++ SessionStore
++ EventStore
++ optional LLM strategy
++ optional MCP adapter
++ optional Celery backend
+```
+
+## 当前能力
+
+### 数据源管理
+
+支持：
+
+- SQLite / SQLAlchemy 数据源
+- CSV 文件数据源
+- Excel `.xlsx` 文件数据源
+- Parquet 文件数据源，依赖可用时启用
+- 本地文件路径注册，默认关闭
+- Web UI 上传文件、选择数据源、触发 profile
+- 数据源 metadata 脱敏
+
+文件数据源会转换为可查询的只读 SQLite 表，复用现有 Context Manager、SQLGuard、分析和导出链路。
+
+### Context Manager
+
+Context Manager 会生成 `DatabaseProfile`：
+
+- 表名、字段名、字段类型
+- 样例值摘要
+- 表角色和字段语义
+- 候选指标和候选维度
+- 时间字段、指标字段、维度字段
+- schema hash
+- profile status/cache
+
+后续 schema QA、直接分析、开放探索和 SQL 生成都应读取 `DatabaseProfile`，不能让 LLM 凭空猜字段。
+
+### Schema QA / 字段问答
+
+以下问题走 `schema_qa` / data inspection，不进入 report/export，也不要求已有分析结果：
+
+```text
+这个表有哪些字段？
+帮我看看这个表格都有哪些字段
+把字段告诉我
+有哪些列？
+字段是什么意思？
+这个文件包含什么字段？
+哪些字段可以作为指标？
+哪些字段适合做维度？
+```
+
+输出包括字段列表、类型、样例摘要、候选指标、候选维度和可分析方向。
+
+### 明确问题分析
+
+典型问题：
+
+```text
+近 12 个月销售趋势怎么样？
+各品类 GMV Top 5 是什么？
+不同地区订单量如何？
+平均单价最高的商品是什么？
+```
+
+主流程：
+
+```text
+route
+→ ensure_database_profile
+→ retrieve_similar_cases
+→ interpret_question
+→ make_analysis_plan
+→ draft_sql
+→ validate_sql
+→ risk_check_sql
+→ execute_sql
+→ check_result
+→ repair_sql_if_needed
+→ decide_chart
+→ generate_chart_artifact
+→ generate_insight
+→ build_analysis_package
+→ final_response
+```
+
+### 开放探索
+
+典型问题：
+
+```text
+帮我看看这个数据库有什么可以分析的
+帮我探索性地分析一下这张表的数据
+这张表有什么可以分析的吗？
+```
+
+开放探索会基于 `DatabaseProfile` 自动生成多个分析方向，执行 Top N 个简单分析并生成发现摘要。
+
+### 导出
+
+支持 artifact 类型：
+
+- Markdown report
+- Excel `.xlsx`
+- PPT `.pptx`
+- Dashboard JSON spec
+- Chart JSON artifact
+
+导出必须先有 analysis/report context，再走确认命令：
+
+```text
+report_confirm
+excel_confirm
+ppt_confirm
+dashboard_confirm
+```
+
+确认后复用已有 `AnalysisPackage` / `ReportOutline`，不重新分析数据，不重新规划 outline。
+
+## 数据源
+
+### SQL / SQLite
+
+通过 API 注册：
+
+```text
+POST /datasources
+```
+
+通过环境变量配置：
+
+```text
+DATA_ANALYSIS_AGENT_DATASOURCE_URL=demo/ecommerce_demo.sqlite
+DATA_ANALYSIS_AGENT_DATASOURCE_ID=ecommerce-demo-sqlite
+```
+
+### 文件上传
+
+```text
+POST /datasources/upload
+```
+
+支持扩展名：
+
+```text
+.csv
+.xlsx
+.parquet
+```
+
+Parquet 依赖不可用时会返回结构化错误。
+
+### 本地路径注册
+
+```text
+POST /datasources/from-path
+```
+
+默认关闭，必须显式启用：
+
+```text
+DATA_ANALYSIS_AGENT_ALLOW_LOCAL_FILE_PATHS=true
+```
+
+安全限制：
+
+- 禁止路径穿越
+- 禁止读取 `.env` 等敏感文件
+- 不向前端暴露完整敏感路径
+- 不把文件正文写入 events/history/session context summary
+
+## LLM 配置
+
+默认后端不主动发真实 LLM 请求；Web UI 的会话配置入口固定提交
+`real_llm`。网页端不再暴露测试模型模式，也不再暴露 LLM router
+开关。
+
+Web UI `enabled_nodes` 支持：
+
+```text
+planner
+sql_drafter
+insight_writer
+```
+
+网页端节点 alias 映射：
+
+```text
+planner -> interpret_question, make_analysis_plan
+sql_drafter -> draft_sql
+insight_writer -> generate_insight
+```
+
+安全约束：
+
+- 普通聊天 no-tools
+- LLM router 只输出 intent，不输出 SQL
+- SQL drafter 输出仍必须经过 SQLGuard 和字段校验
+- LLM 不能自由调用 MCP/tools
+- API key 不返回前端，不写入 events/history/session/artifact
+
+## 典型流程
+
+### 使用 demo 数据库
+
+```text
+1. python scripts/run_dev.py
+2. Web UI 选择 demo datasource
+3. Profile datasource
+4. 输入：近 12 个月销售趋势怎么样？
+5. 查看回答、SQL、chart artifact
+6. 生成 Report / Excel / PPT / Dashboard
+```
+
+### 字段问答
+
+```text
+这个表有哪些字段？
+帮我看看这个表格都有哪些字段
+哪些字段可以作为指标？
+```
+
+这些问题应进入 `schema_qa`，不应返回“当前会话没有可用的分析结果”。
+
+### 开放探索
+
+```text
+帮我看看这个数据库有什么可以分析的
+这张表有什么可以分析的吗？
+帮我探索性地分析一下这张表的数据
+```
+
+这些问题应进入 `open_exploration`。
+
+### 导出
+
+```text
+生成报告
+导出 Excel
+做成 PPT
+生成 Dashboard
+```
+
+导出确认命令：
+
+```text
+report_confirm
+excel_confirm
+ppt_confirm
+dashboard_confirm
+```
+
+## Artifact
+
+Artifact API：
+
+```text
+GET /artifacts/{artifact_id}
+GET /artifacts/{artifact_id}/content
+```
+
+支持：
+
+| 类型 | 内容 |
+| --- | --- |
+| chart | 轻量 JSON chart spec |
+| report | Markdown report |
+| excel | `.xlsx` |
+| ppt | `.pptx` |
+| dashboard | Dashboard JSON spec |
+
+events/history/session context summary 只保存 `artifact:<id>` 引用，不保存 artifact 正文。
+
+
+## MCP
+
+本地 demo MCP server：
 
 ```bash
-python -m pip install --upgrade pip
+copy scripts\mcp.example.json scripts\mcp.local.json
+```
+
+启用 `demo_mcp` 后：
+
+```bash
+python scripts/run_mcp_smoke.py --config scripts/mcp.local.json --server-id demo_mcp --list-tools
+```
+
+调用工具：
+
+```bash
+python scripts/run_mcp_smoke.py --config scripts/mcp.local.json --server-id demo_mcp --call-tool mcp__demo_mcp__list_demo_tables
+```
+
+```bash
+python scripts/run_mcp_smoke.py --config scripts/mcp.local.json --server-id demo_mcp --call-tool mcp__demo_mcp__describe_demo_table --tool-args "{\"table\":\"orders\"}"
+```
+
+MCP 安全边界：
+
+- 默认不启用
+- stdio command 有 allowlist
+- 不使用任意 shell command
+- 工具名格式：`mcp__{server_id}__{raw_tool_name}`
+- MCP tools 仍受 ToolRegistry allowed_nodes 限制
+- LLM 不会自由调用 MCP tools
+
+
+## 安全边界
+
+### SQL
+
+- 只允许 SELECT / WITH SELECT
+- 禁止 INSERT / UPDATE / DELETE / DROP / ALTER / TRUNCATE / CREATE / GRANT / REVOKE
+- SQL 执行前必须经过 SQLGuard
+- 表名和字段名必须存在
+- `validate_sql` 失败不能进入 `execute_sql`
+- LLM 生成 SQL 不会直接执行
+
+### 工具
+
+- ToolRegistry 按节点限制工具
+- 不写巨大 if/elif dispatcher
+- 不让 LLM 自由调用全部工具
+- 普通聊天不能直接导出 PPT / Excel / Report / Dashboard
+
+### History / Context
+
+- `SessionStore` 保存用户可见历史
+- `AgentContextSummary` 只保存结构化摘要
+- 不保存上传文件正文
+- 不保存 artifact 正文
+- 不保存 API key
+- 不把完整 chat history 当主要工作流状态
+
+### Artifact
+
+- events/history 只保存 artifact ref
+- artifact 正文通过 Artifact API 获取
+- 大 payload 不进入 SSE history
+
+## 已知限制
+
+- Web UI 仍是 vanilla technical preview workstation
+- 没有登录、权限和多用户隔离
+- 默认不提供生产级部署配置
+- Celery / Redis / Postgres 路径需要本地手动集成验证
+- Dashboard renderer 是轻量实现，不是完整 BI 产品
+- Parquet 依赖可选
+- 真实 LLM eval 不进入默认 CI
+- 真实第三方 MCP server 需要手动验证
+- 复杂业务口径仍可能需要 human confirmation
+- 当前仓库没有 `LICENSE` 文件
+
+## License
+
+当前仓库未检测到 `LICENSE` 文件。发布前建议明确 license，并同步 `docs/third_party_notices.md` 中的上游来源说明。
+
+## Release / CI Compatibility Notes
+
+Compatibility label: v0.2.0-alpha technical preview.
+
+This Chinese README is the GitHub homepage, and it keeps the English release
+anchors used by CI documentation checks: Architecture Overview, Directory Structure,
+Quick Start, Demo Database, FastAPI Memory Backend, Eval And Tests,
+Optional Smoke Tests, and Safety Boundaries. Core safety terms: SQLGuard,
+artifact, fast-path.
+
+Install and verify locally:
+
+```bash
 python -m pip install -e ".[dev]"
-```
-
-Start the full local development workspace with one command:
-
-```bash
-python scripts/run_dev.py
-```
-
-This creates or reuses `demo/ecommerce_demo.sqlite`, starts the FastAPI memory
-backend at `http://127.0.0.1:8000`, serves the static Web UI at
-`http://127.0.0.1:5173`, uses a local SQLite session history store at
-`tmp/dev_sessions.sqlite`, opens the browser, and shuts both subprocesses down
-on `Ctrl+C`. Use alternate ports when needed:
-
-```bash
-python scripts/run_dev.py --no-browser --api-port 8010 --web-port 5174
-```
-
-Run the default verification suite:
-
-```bash
 python -m pytest
 python -m evals.runner
 python -m ruff check .
 python -m ruff format --check .
-```
-
-## Demo Database
-
-Generate or refresh the local SQLite ecommerce demo database:
-
-```bash
-python scripts/create_demo_db.py --output demo/ecommerce_demo.sqlite
-```
-
-Run the end-to-end local demo flow with the in-memory backend:
-
-```bash
-python scripts/run_demo_flow.py --db-path demo/ecommerce_demo.sqlite
-```
-
-The demo runs context profiling, direct analysis, open exploration, report
-outline generation, and confirmed Excel/PPT/dashboard exports. It prints job IDs,
-events, final responses, and artifact refs. It does not call a real LLM by
-default.
-
-## FastAPI Memory Backend
-
-Start the local FastAPI app with the default in-memory runner:
-
-```bash
+python scripts/create_demo_db.py
+python scripts/run_demo_flow.py
 python scripts/run_api.py
-```
-
-Submit a chat job:
-
-```bash
-curl -X POST http://127.0.0.1:8000/sessions/demo-session/chat \
-  -H "Content-Type: application/json" \
-  -d "{\"message\":\"Show monthly GMV trend\",\"command\":\"none\"}"
-```
-
-Inspect job status, events, SSE, and artifacts:
-
-```bash
-curl http://127.0.0.1:8000/health
-curl http://127.0.0.1:8000/health/runtime
-curl http://127.0.0.1:8000/datasources
-curl -X POST http://127.0.0.1:8000/sessions/demo-session/datasource \
-  -H "Content-Type: application/json" \
-  -d "{\"datasource_id\":\"ecommerce-demo-sqlite\"}"
-curl -X POST http://127.0.0.1:8000/datasources/ecommerce-demo-sqlite/profile
-curl http://127.0.0.1:8000/jobs/{job_id}
-curl http://127.0.0.1:8000/jobs/{job_id}/events
-curl http://127.0.0.1:8000/jobs/{job_id}/events/stream
-curl http://127.0.0.1:8000/artifacts/{artifact_id}
-curl http://127.0.0.1:8000/artifacts/{artifact_id}/content
-```
-
-For an in-process API smoke check without starting uvicorn:
-
-```bash
-python scripts/run_integration_smoke.py --in-process --runner-backend memory --sse
-```
-
-File datasource smoke:
-
-```bash
-python scripts/run_integration_smoke.py \
-  --in-process \
-  --datasource-kind file \
-  --file-registration-mode upload \
-  --file-path demo/ecommerce_orders_demo.csv \
-  --file-table-name orders \
-  --profile-datasource \
-  --include-exploration \
-  --include-exports \
-  --message "Show monthly GMV trend"
-```
-
-## Minimal API Client Examples
-
-After starting the local API, run the smallest stdlib client:
-
-```bash
-python examples/client/minimal_client.py \
-  --base-url http://127.0.0.1:8000 \
-  --message "Show monthly GMV trend" \
-  --stream
-```
-
-Run direct analysis plus report/export confirmation:
-
-```bash
-python examples/client/demo_flow_client.py \
-  --base-url http://127.0.0.1:8000 \
-  --confirm-command excel_confirm
-```
-
-The examples print job IDs, event types, final responses, artifact refs, and
-artifact download byte sizes. They do not implement a UI and do not require real
-LLM, Redis, Celery, or Postgres services.
-
-## Static Web UI Example
-
-The Web UI is a lightweight technical-preview workspace, not a finished
-multi-user product UI. It defaults to rule mode unless the backend is started
-with explicit LLM configuration.
-
-After starting the local API, serve the static browser UI from a second terminal:
-
-```bash
-cd examples/web
-python -m http.server 5173
-```
-
-Open `http://127.0.0.1:5173`, keep `API Base URL` set to
-`http://127.0.0.1:8000`, refresh the datasource panel, select
-`ecommerce-demo-sqlite`, optionally click `Profile datasource`, and ask:
-
-```text
-杩?12 涓湀閿€鍞秼鍔挎€庝箞鏍凤紵
-```
-
-The page uses a product-oriented layout: session and datasource controls on the
-left, chat/answer/inline approval in the center, and grouped artifacts plus a
-dashboard renderer on the right. Developer details stay collapsed by default and
-contain SSE events, SQL, raw artifact preview, runtime health, and LLM settings.
-Top-bar sidebar controls keep the chat column usable on narrow screens.
-Keyboard shortcuts are intentionally simple: `Enter` sends, `Shift+Enter` adds a
-line break, and `Esc` closes previews or collapses Developer details.
-Human approval appears as an assistant card in the chat stream and as shortcut
-buttons near the input box; export confirms still call the existing fast-path
-commands.
-Dashboard artifacts can be rendered in the browser as lightweight metric, chart,
-table, and insight cards. Chart artifacts are previewed as simple line or bar
-SVG charts when possible, with a bounded JSON fallback for unsupported chart
-types.
-Datasource registration supports SQLite paths, SQLAlchemy URLs, local file path
-registration in trusted local mode, and browser CSV/Excel upload. Parquet can be
-registered when the optional Parquet dependency is available. The upload panel
-shows supported formats, upload size limits, and the next step
-`select datasource -> Profile datasource -> ask a question`. Error messages call
-out unsupported extensions, empty files, parser failures, missing Parquet
-dependencies, disabled local path mode, and rejected sensitive paths. MCP/Celery
-configuration remains intentionally read-only in the Web UI. The top status strip
-shows runner backend, datasource status, current datasource, session id, LLM
-mode, provider/model, enabled LLM nodes, and whether a local backend API key is
-configured. `LLM: rule` means no real provider call is being made.
-
-The Web UI LLM settings panel is session scoped and fixed to `real_llm` for
-product testing. The browser no longer exposes the test LLM mode or the LLM
-`router` toggle; it can enable only `planner`, `sql_drafter`, and
-`insight_writer`.
-Real LLM mode requires a saved local Provider / Model / Base URL / API key
-config, or equivalent backend environment configuration. The API key is stored
-only in local backend configuration and is never returned to the browser.
-
-`scripts/run_dev.py` uses a local SQLite Session Store by default so visible
-chat history survives local restarts. A standalone `scripts/run_api.py` launch
-still defaults to the in-memory Session Store unless configured otherwise. The
-Session Store keeps visible chat messages, job summaries, datasource/LLM
-selections, and artifact refs for Web UI switching. It does not store artifact file contents, graph
-checkpoints, or raw event streams. For local persistence, start the API with a
-SQLite-backed store:
-
-```bash
-DATA_ANALYSIS_AGENT_SESSION_STORE=sqlite \
-DATA_ANALYSIS_AGENT_SESSION_DB_URL=sqlite:///runtime/session_history.sqlite \
-python scripts/run_api.py --runner-backend memory
-```
-
-Optional retention settings are `DATA_ANALYSIS_AGENT_SESSION_TTL_DAYS` and
-`DATA_ANALYSIS_AGENT_SESSION_MAX_MESSAGES`. The cleanup API trims history only;
-artifact files remain in `ArtifactStore`.
-
-The UI structure was informed by the Apache-2.0 upstream project, with details
-recorded in [docs/third_party_notices.md](docs/third_party_notices.md).
-
-## Docker Quick Start
-
-Memory backend:
-
-```bash
+python scripts/run_llm_smoke.py
+python scripts/run_llm_eval.py
+python scripts/run_mcp_smoke.py
+python scripts/run_integration_smoke.py
+python examples/client/minimal_client.py
+python examples/client/demo_flow_client.py
 docker compose up --build api
-```
-
-Celery backend with API, worker, Redis, and Postgres:
-
-```bash
 docker compose -f docker-compose.celery.yml up --build
 ```
 
-Both compose files use `.env.example` values. The Celery profile shares
-`artifact_data` and `upload_data` volumes between API and worker, and configures
-shared Redis/Postgres-backed event, checkpoint, and session stores. Do not commit
-a real `.env`. See [docs/deployment.md](docs/deployment.md) for production notes.
-
-## Eval And Tests
-
-Run offline regression evals:
-
-```bash
-python -m evals.runner
-```
-
-Run optional real LLM evals manually:
-
-```bash
-python scripts/run_llm_eval.py \
-  --tag sql \
-  --llm-node sql_drafter \
-  --llm-node insight_writer \
-  --model your-model-name \
-  --base-url https://your-provider.example.com/v1 \
-  --api-key-env YOUR_PROVIDER_API_KEY
-```
-
-Run tests:
-
-```bash
-python -m pytest
-```
-
-The eval suite uses SQLite fixtures and rule strategy by default. It checks
-intent, SQL safety, table/field match, result non-empty rate, chart type,
-artifact generation, ReAct/tool-free-call violations, and large-payload leaks.
-Real LLM eval is opt-in and is not part of default CI. Optional LLM cases can be
-filtered with tags such as `router`, `sql`, `file-datasource`, and `export`;
-their summaries include fallback, invalid JSON, SQLGuard block, and no-SQL
-chat/help rates.
-
-## Optional Smoke Tests
-
-LLM smoke tests are manual and require a local API key environment variable:
-
-```bash
-python scripts/run_llm_smoke.py \
-  --provider openai_compatible \
-  --model gpt-4.1-mini \
-  --base-url https://api.openai.com/v1 \
-  --api-key-env OPENAI_API_KEY \
-  --llm-node sql_drafter \
-  --llm-node insight_writer
-```
-
-MCP smoke tests are manual and use a local JSON config:
-
-```bash
-cp scripts/mcp.example.json scripts/mcp.local.json
-# edit scripts/mcp.local.json and set demo_mcp enabled=true
-python scripts/run_mcp_smoke.py \
-  --config scripts/mcp.local.json \
-  --server-id demo_mcp \
-  --list-tools
-python scripts/run_mcp_smoke.py \
-  --config scripts/mcp.local.json \
-  --server-id demo_mcp \
-  --call-tool mcp__demo_mcp__list_demo_tables
-python scripts/run_mcp_smoke.py \
-  --config scripts/mcp.local.json \
-  --server-id demo_mcp \
-  --call-tool mcp__demo_mcp__describe_demo_table \
-  --tool-args '{"table":"orders"}'
-```
-
-Redis/Celery/Postgres integration scripts are also manual:
-
-```bash
-docker compose -f scripts/docker-compose.example.yml up redis postgres
-DATA_ANALYSIS_AGENT_CELERY_BROKER_URL=redis://127.0.0.1:6379/0 \
-DATA_ANALYSIS_AGENT_REDIS_URL=redis://127.0.0.1:6379/0 \
-DATA_ANALYSIS_AGENT_ARTIFACT_DIR=artifacts \
-DATA_ANALYSIS_AGENT_DATASOURCE_URL=demo/ecommerce_demo.sqlite \
-python scripts/run_worker.py --execute
-python scripts/run_api.py --runner-backend celery
-python scripts/run_integration_smoke.py --runner-backend celery --sse
-```
-
-See [docs/commands.md](docs/commands.md) and [scripts/README.md](scripts/README.md)
-for all local commands and environment variables.
-
-## Safety Boundaries
-
-- SQL execution must go through `SQLGuard`; write statements are blocked.
-- Export tools require explicit confirm commands such as `ppt_confirm`,
-  `report_confirm`, `excel_confirm`, or `dashboard_confirm`.
-- Confirmed export jobs use the report fast-path and do not re-analyze data or
-  regenerate outlines.
-- Chart HTML, dashboard specs, PPTX, Excel, and report bodies stay in artifact
-  storage. Events, chat history, and final responses only carry artifact refs.
-- LLM strategy is opt-in per node and falls back to rule strategy on structured
-  errors or invalid JSON.
-- MCP stdio commands are allowlisted and executed with `shell=False`; MCP tools
-  are registered through the adapter and remain restricted by ToolRegistry node
-  permissions, never automatically exposed to LLM nodes.
-
-## Product LLM Config And Session Titles
-
-The local Web UI can save a technical-preview LLM provider config through the API:
-
-- `GET /llm/config` returns a sanitized provider config.
-- `POST /llm/config` saves provider, model, base URL, enabled node defaults, and a local API key.
-- `POST /llm/test` manually tests the saved or submitted provider config.
-- `PATCH /sessions/{session_id}` renames a user-visible session.
-
-The raw API key is never returned by status/config endpoints and must not appear in events,
-session history, artifacts, or final responses. In this alpha, the key may be stored in the
-local file configured by `DATA_ANALYSIS_AGENT_LLM_CONFIG_PATH`; the default `runtime/` directory
-is ignored by git. Session-level LLM settings still store only mode and enabled node aliases.
+Deployment notes: docs/deployment.md.

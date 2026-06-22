@@ -36,7 +36,7 @@ class ApproveRequest(StrictBaseModel):
 
 
 class DataSourceCreateRequest(StrictBaseModel):
-    """娉ㄥ唽 sqlite 鎴?SQLAlchemy 鏁版嵁婧愮殑 API 杈撳叆銆?"""
+    """注册 sqlite 或 SQLAlchemy 数据源的 API 输入。"""
 
     datasource_id: str
     name: str | None = None
@@ -46,7 +46,7 @@ class DataSourceCreateRequest(StrictBaseModel):
 
 
 class FileDataSourceFromPathRequest(StrictBaseModel):
-    """閫氳繃鏈湴鏂囦欢璺緞娉ㄥ唽鏂囦欢鏁版嵁婧愮殑 API 杈撳叆銆?"""
+    """通过本地文件路径注册文件数据源的 API 输入。"""
 
     path: str
     datasource_id: str | None = None
@@ -55,13 +55,13 @@ class FileDataSourceFromPathRequest(StrictBaseModel):
 
 
 class SessionDataSourceRequest(StrictBaseModel):
-    """璁剧疆褰撳墠浼氳瘽鏁版嵁婧愮殑 API 杈撳叆銆?"""
+    """设置当前会话数据源的 API 输入。"""
 
     datasource_id: str
 
 
 class SessionDataSourceResponse(StrictBaseModel):
-    """褰撳墠浼氳瘽鏁版嵁婧愰€夋嫨缁撴灉銆?"""
+    """当前会话数据源选择结果。"""
 
     session_id: str
     datasource_id: str | None = None
