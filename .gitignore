@@ -1,0 +1,50 @@
+# Local secrets and environment files
+.env
+.env.*
+!.env.example
+AGENTS.md
+agents.md
+llm_config*.json
+*llm*config*.json
+*secret*
+*token*
+*.key
+
+# Python caches and test caches
+__pycache__/
+*.pyc
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local virtual environments
+.venv/
+venv/
+
+# IDE and editor state
+.idea/
+.vscode/
+
+# Runtime artifacts and local scratch space
+runtime/
+runtime/llm_config.json
+runtime/*config*.json
+artifacts/
+uploads/
+upload_data/
+outputs/
+data/
+demo/*.sqlite
+*.sqlite
+*.db
+*.duckdb
+tmp/
+*.tmp
+temp/
+*.log
+*.bak
+
+# Frontend/runtime dependency caches
+node_modules/
+.pytest-basetemp/

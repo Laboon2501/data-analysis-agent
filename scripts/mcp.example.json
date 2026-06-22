@@ -1,0 +1,36 @@
+{
+  "servers": [
+    {
+      "server_id": "demo_mcp",
+      "transport": "stdio",
+      "command": "python",
+      "args": ["examples/mcp/demo_mcp_server.py"],
+      "env": {},
+      "enabled": false,
+      "metadata": {
+        "notes": "Local read-only demo MCP server. Set enabled=true only for manual smoke validation."
+      }
+    },
+    {
+      "server_id": "local_stdio_example",
+      "transport": "stdio",
+      "command": "python",
+      "args": ["-m", "your_mcp_server_module"],
+      "env": {},
+      "enabled": false,
+      "metadata": {
+        "notes": "Set enabled=true after replacing args with a real local MCP server. The command must stay in the allowlist."
+      }
+    },
+    {
+      "server_id": "local_sse_example",
+      "transport": "sse",
+      "url": "http://127.0.0.1:8000/sse",
+      "headers": {},
+      "enabled": false,
+      "metadata": {
+        "notes": "Set enabled=true only when a local SSE MCP server is already running. Do not put secrets in this file."
+      }
+    }
+  ]
+}

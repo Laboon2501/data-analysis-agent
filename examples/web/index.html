@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Data Analysis Agent Web UI</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">LangGraph Data Analysis Agent</p>
+        <h1>数据分析工作台</h1>
+      </div>
+      <div class="topbar-actions">
+        <label class="inline-field">
+          <span>API Base URL</span>
+          <input id="base-url-input" type="url" value="http://127.0.0.1:8000">
+        </label>
+        <button id="health-refresh-btn" class="secondary-btn" type="button" aria-label="刷新 API 和运行时健康状态">刷新健康状态</button>
+        <button id="toggle-left-panel-btn" class="secondary-btn panel-toggle-btn" type="button" aria-label="折叠或展开会话和数据源侧栏" aria-controls="left-panel">左侧栏</button>
+        <button id="toggle-right-panel-btn" class="secondary-btn panel-toggle-btn" type="button" aria-label="折叠或展开 artifact 和开发者详情侧栏" aria-controls="right-panel">右侧栏</button>
+      </div>
+      <div class="top-status-strip status-chip-row" role="status" aria-live="polite" aria-label="runtime status">
+        <span class="status-chip">Runner: <strong id="top-runner-backend">unknown</strong></span>
+        <span class="status-chip">Datasource: <strong id="top-datasource-status">unknown</strong></span>
+        <span class="status-chip">Current datasource: <strong id="top-current-datasource">unselected</strong></span>
+        <span class="status-chip">LLM: <strong id="top-llm-mode">rule</strong></span>
+        <span class="status-chip">Model: <strong id="top-llm-provider-model">none</strong></span>
+        <span class="status-chip">LLM nodes: <strong id="top-llm-enabled-nodes">none</strong></span>
+        <span class="status-chip">API key: <strong id="top-llm-api-key">unknown</strong></span>
+        <span class="status-chip">History store: <strong id="top-session-store">memory</strong></span>
+        <span class="status-chip">Session: <strong id="top-session-title">新对话</strong></span>
+      </div>
+    </header>
+
+    <aside id="left-panel" class="left-panel" aria-label="Session and datasource panel">
+      <section class="panel-block">
+        <div class="block-title">
+          <span>会话</span>
+          <button id="new-session-btn" class="text-btn" type="button" aria-label="新建会话">新会话</button>
+        </div>
+        <div class="session-actions">
+          <button id="refresh-sessions-btn" class="secondary-btn" type="button" aria-label="刷新会话列表">Refresh sessions</button>
+          <button id="delete-session-btn" class="danger-btn" type="button" aria-label="删除当前会话">Delete session</button>
+        </div>
+        <label class="stacked-field">
+          <span>Session title</span>
+          <input id="session-title-input" type="text" maxlength="40" autocomplete="off" aria-label="Session title">
+        </label>
+        <button id="rename-session-btn" class="secondary-btn" type="button" aria-label="Rename current session">Rename session</button>
+        <div id="session-panel-status" class="muted-note" role="status" aria-live="polite">Sessions have not been loaded.</div>
+        <div class="session-store-box">
+          <div>Store: <strong id="session-store-type">memory</strong></div>
+          <div>Messages: <strong id="current-session-message-count">0</strong></div>
+          <div>Updated: <strong id="current-session-updated-at">unknown</strong></div>
+          <div id="session-store-warning" class="muted-note">Memory history is temporary.</div>
+        </div>
+        <div id="session-list" class="session-list" role="list" aria-label="会话列表"></div>
+        <label class="stacked-field">
+          <span>Session ID</span>
+          <input id="session-id-input" type="text" autocomplete="off" aria-label="当前会话 ID">
+        </label>
+        <label class="stacked-field">
+          <span>Command</span>
+          <select id="command-select" aria-label="发送命令">
+            <option value="none">none</option>
+            <option value="analyze">analyze</option>
+            <option value="explore">explore</option>
+            <option value="profile">profile</option>
+            <option value="report">report outline</option>
+          </select>
+        </label>
+        <div class="job-box">
+          <span>Current job</span>
+          <strong id="current-job-id">未创建</strong>
+        </div>
+        <div id="session-job-list" class="session-job-list"></div>
+        <button id="cancel-job-btn" class="danger-btn" type="button" disabled aria-label="取消当前任务">取消任务</button>
+      </section>
+
+      <section class="panel-block">
+        <div class="block-title">
+          <span>数据源</span>
+          <span id="datasource-count-badge" class="badge">0</span>
+        </div>
+        <div id="datasource-panel-status" class="muted-note" role="status" aria-live="polite">Load datasources to begin.</div>
+        <label class="stacked-field">
+          <span>Current datasource</span>
+          <select id="datasource-select" aria-label="当前会话使用的数据源">
+            <option value="">No datasource selected</option>
+          </select>
+        </label>
+        <div class="datasource-actions">
+          <button id="refresh-datasources-btn" class="secondary-btn" type="button" aria-label="刷新数据源列表">Refresh</button>
+          <button id="set-session-datasource-btn" class="secondary-btn" type="button" aria-label="将选中数据源用于当前会话">Use for session</button>
+          <button id="profile-datasource-btn" class="secondary-btn" type="button" aria-label="为选中数据源生成 profile">Profile datasource</button>
+        </div>
+        <div id="datasource-list" class="datasource-list" role="list" aria-label="数据源列表"></div>
+        <details class="datasource-register">
+          <summary>Register datasource</summary>
+          <label class="stacked-field">
+            <span>Datasource ID</span>
+            <input id="register-datasource-id-input" type="text" placeholder="local-sqlite" aria-label="Datasource ID">
+          </label>
+          <label class="stacked-field">
+            <span>Name</span>
+            <input id="register-datasource-name-input" type="text" placeholder="Local SQLite" aria-label="Datasource name">
+          </label>
+          <label class="stacked-field">
+            <span>Kind</span>
+            <select id="register-datasource-kind-select" aria-label="Datasource kind">
+              <option value="sqlite">sqlite</option>
+              <option value="sqlalchemy">sqlalchemy</option>
+            </select>
+          </label>
+          <label class="stacked-field">
+            <span>SQLite path or SQLAlchemy URL</span>
+            <input id="register-datasource-url-input" type="text" placeholder="demo/ecommerce_demo.sqlite" aria-label="SQLite path or SQLAlchemy URL">
+          </label>
+          <button id="register-datasource-btn" class="secondary-btn" type="button" aria-label="注册数据源">Register</button>
+        </details>
+        <details class="datasource-register datasource-file-path">
+          <summary>Register file path</summary>
+          <label class="stacked-field">
+            <span>File datasource ID</span>
+            <input id="file-path-datasource-id-input" type="text" placeholder="orders-file" aria-label="File datasource ID">
+          </label>
+          <label class="stacked-field">
+            <span>Name</span>
+            <input id="file-path-name-input" type="text" placeholder="Orders CSV" aria-label="File datasource name">
+          </label>
+          <label class="stacked-field">
+            <span>Table name</span>
+            <input id="file-path-table-input" type="text" placeholder="orders" aria-label="File datasource table name">
+          </label>
+          <label class="stacked-field">
+            <span>Local CSV / Excel / Parquet path</span>
+            <input id="file-path-input" type="text" placeholder="D:\\data\\orders.csv" aria-label="Local file datasource path">
+          </label>
+          <button id="register-file-path-btn" class="secondary-btn" type="button" aria-label="通过本地文件路径注册数据源">Register file path</button>
+          <p id="file-path-mode-note" class="muted-note">
+            Local file paths are disabled unless the API is started with
+            DATA_ANALYSIS_AGENT_ALLOW_LOCAL_FILE_PATHS=true. Only CSV, Excel, and optional Parquet
+            files are accepted; sensitive paths and path traversal are rejected.
+          </p>
+        </details>
+        <details class="datasource-register datasource-upload">
+          <summary>Upload CSV / Excel / Parquet</summary>
+          <label class="stacked-field">
+            <span>Upload datasource ID</span>
+            <input id="upload-datasource-id-input" type="text" placeholder="uploaded-orders" aria-label="Upload datasource ID">
+          </label>
+          <label class="stacked-field">
+            <span>Name</span>
+            <input id="upload-name-input" type="text" placeholder="Uploaded Orders" aria-label="Upload datasource name">
+          </label>
+          <label class="stacked-field">
+            <span>Table name</span>
+            <input id="upload-table-input" type="text" placeholder="orders" aria-label="Upload table name">
+          </label>
+          <label class="stacked-field">
+            <span>File</span>
+            <input id="datasource-upload-input" type="file" accept=".csv,.xlsx,.parquet,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="Upload CSV Excel or Parquet datasource file">
+          </label>
+          <button id="upload-datasource-btn" class="secondary-btn" type="button" aria-label="上传文件并注册数据源">Upload file</button>
+          <p id="upload-format-note" class="muted-note">
+            Supported formats: CSV and Excel xlsx. Parquet is optional and requires pyarrow.
+            Maximum upload size follows the API runtime setting.
+          </p>
+          <p id="upload-next-step-note" class="muted-note">
+            After upload: select the datasource, run Profile datasource, then ask a question.
+          </p>
+        </details>
+        <p class="muted-note">
+          Connect SQL, register a local file path, or upload CSV/Excel/Parquet. API keys, server
+          paths, and file contents are not stored in this page.
+        </p>
+      </section>
+
+    </aside>
+
+    <main class="chat-panel" aria-label="Chat workspace">
+      <section class="message-list" id="message-list" aria-live="polite">
+        <article class="message assistant-message welcome-message">
+          <div class="message-meta">Assistant</div>
+          <div class="message-body">
+            <strong>欢迎使用数据分析工作台。</strong>
+            <span>先选择或注册数据源，然后直接提问。当前默认使用规则模式；可在开发者详情里的 LLM 设置启用模型节点。</span>
+          </div>
+        </article>
+      </section>
+
+      <section id="inline-approval-panel" class="inline-approval-panel empty" role="region" aria-label="Pending human approval" aria-live="polite">
+        <div class="inline-approval-title">
+          <span>需要确认</span>
+          <span id="human-status" class="badge badge-neutral">idle</span>
+        </div>
+        <div id="human-request-card" class="human-card empty" tabindex="-1">
+          暂无待确认请求
+        </div>
+      </section>
+
+      <section class="composer" aria-label="Message composer">
+        <div id="approval-shortcuts" class="approval-shortcuts empty" aria-label="Pending approval shortcuts">
+          <span>No pending approval.</span>
+        </div>
+        <div class="quick-prompts">
+          <button type="button" data-command="none" data-prompt="近 12 个月销售趋势怎么样？" aria-label="示例问题：近 12 个月销售趋势怎么样？">
+            近 12 个月销售趋势怎么样？
+          </button>
+          <button type="button" data-command="none" data-prompt="各品类 GMV Top 5 是什么？" aria-label="示例问题：各品类 GMV Top 5 是什么？">
+            各品类 GMV Top 5 是什么？
+          </button>
+          <button type="button" data-command="none" data-prompt="不同地区订单量如何？" aria-label="示例问题：不同地区订单量如何？">
+            不同地区订单量如何？
+          </button>
+          <button type="button" data-command="explore" data-prompt="帮我看看这个数据库有什么可以分析的" aria-label="示例问题：帮我看看这个数据库有什么可以分析的">
+            帮我看看这个数据库有什么可以分析的
+          </button>
+        </div>
+        <label class="composer-field">
+          <span class="sr-only">Message</span>
+          <textarea id="message-input" rows="3" placeholder="输入问题，Enter 发送，Shift+Enter 换行" aria-label="消息输入框" aria-describedby="composer-keyboard-hint"></textarea>
+        </label>
+        <div id="composer-keyboard-hint" class="keyboard-hint">Enter 发送，Shift+Enter 换行，Esc 关闭图表 / Dashboard 预览或折叠开发者详情。</div>
+        <div class="composer-actions">
+          <span id="request-status" class="request-status" role="status" aria-live="polite">Ready</span>
+          <button id="send-btn" class="primary-btn" type="button" aria-label="发送消息">发送</button>
+        </div>
+      </section>
+    </main>
+
+    <aside id="right-panel" class="right-panel" aria-label="Artifacts and developer details">
+      <section class="panel-block artifact-block">
+        <div class="block-title">
+          <span>Artifacts</span>
+          <span id="artifact-count" class="badge">0</span>
+        </div>
+        <div id="artifact-list" class="artifact-list" aria-live="polite"></div>
+      </section>
+
+      <section class="panel-block dashboard-renderer-block">
+        <div class="block-title">
+          <span>Dashboard</span>
+          <span id="dashboard-renderer-status" class="badge badge-neutral">idle</span>
+          <button id="close-preview-btn" class="text-btn" type="button" aria-label="关闭图表或 Dashboard 预览">Close preview</button>
+        </div>
+        <div id="dashboard-renderer" class="dashboard-renderer empty" tabindex="-1" aria-live="polite">
+          Select a dashboard artifact and click Render dashboard.
+        </div>
+      </section>
+
+      <section class="panel-block">
+        <div class="block-title">
+          <span>错误</span>
+          <span id="error-count" class="badge badge-danger">0</span>
+        </div>
+        <div id="error-list" class="error-list" role="alert" aria-live="polite"></div>
+      </section>
+
+      <details id="developer-details" class="developer-details">
+        <summary>开发者模式：SSE / SQL / raw artifact preview</summary>
+
+        <section class="panel-block">
+          <div class="block-title">
+            <span>LLM Settings</span>
+            <span id="llm-mode-badge" class="badge badge-neutral">rule</span>
+          </div>
+          <div id="llm-status-panel" class="muted-note">LLM status has not been loaded.</div>
+          <div class="llm-provider-config" aria-label="Global LLM provider config">
+            <label class="stacked-field">
+              <span>Provider</span>
+              <select id="llm-provider-select" aria-label="LLM provider">
+                <option value="deepseek">deepseek</option>
+                <option value="openai_compatible">openai_compatible</option>
+                <option value="openai">openai</option>
+                <option value="custom">custom</option>
+              </select>
+            </label>
+            <label class="stacked-field">
+              <span>Model</span>
+              <input id="llm-model-input" type="text" placeholder="deepseek-chat" autocomplete="off" aria-label="LLM model">
+            </label>
+            <label class="stacked-field">
+              <span>Base URL</span>
+              <input id="llm-base-url-input" type="url" placeholder="https://api.deepseek.com/v1" autocomplete="off" aria-label="LLM base URL">
+            </label>
+            <label class="stacked-field">
+              <span>API key</span>
+              <input id="llm-api-key-input" type="password" placeholder="Paste key to save or leave blank to keep existing" autocomplete="off" aria-label="LLM API key">
+            </label>
+            <div class="llm-config-actions">
+              <button id="save-global-llm-config-btn" class="secondary-btn" type="button" aria-label="Save LLM provider config">Save provider config</button>
+              <button id="test-llm-config-btn" class="secondary-btn" type="button" aria-label="Test LLM connection">Test connection</button>
+            </div>
+            <div id="llm-config-status-panel" class="muted-note" role="status" aria-live="polite">Provider config has not been loaded.</div>
+          </div>
+          <div class="stacked-field fixed-llm-mode-field">
+            <span>Mode</span>
+            <input id="llm-mode-select" type="hidden" value="real_llm">
+            <div id="llm-mode-fixed-label" class="fixed-llm-mode" aria-label="Fixed LLM mode">real_llm</div>
+            <p class="muted-note">Web UI uses real_llm only. Router and fake LLM toggles are hidden.</p>
+          </div>
+          <div class="checkbox-list" aria-label="enabled LLM nodes">
+            <label><input id="llm-node-planner" data-llm-node type="checkbox" value="planner"> planner</label>
+            <label><input id="llm-node-sql-drafter" data-llm-node type="checkbox" value="sql_drafter"> sql_drafter</label>
+            <label><input id="llm-node-insight-writer" data-llm-node type="checkbox" value="insight_writer"> insight_writer</label>
+          </div>
+          <button id="save-llm-config-btn" class="secondary-btn" type="button">Save LLM config</button>
+          <dl class="status-list compact-status">
+            <div>
+              <dt>LLM calls</dt>
+              <dd id="llm-call-count">0</dd>
+            </div>
+            <div>
+              <dt>Errors</dt>
+              <dd id="llm-error-count">0</dd>
+            </div>
+            <div>
+              <dt>Fallbacks</dt>
+              <dd id="llm-fallback-count">0</dd>
+            </div>
+            <div>
+              <dt>Invalid JSON</dt>
+              <dd id="llm-json-invalid-count">0</dd>
+            </div>
+          </dl>
+          <p class="muted-note">
+            真实模型需要先保存 Provider / Model / Base URL / API key。API key 仅保存在本地配置，不会显示在页面中。
+          </p>
+        </section>
+
+        <section class="panel-block">
+          <div class="block-title">
+            <span>运行配置</span>
+            <span class="badge badge-neutral">read-only</span>
+          </div>
+          <dl class="status-list">
+            <div>
+              <dt>API</dt>
+              <dd id="api-health">待检查</dd>
+            </div>
+            <div>
+              <dt>Runtime</dt>
+              <dd id="runtime-health">待检查</dd>
+            </div>
+            <div>
+              <dt>Runner</dt>
+              <dd id="runner-backend">unknown</dd>
+            </div>
+            <div>
+              <dt>Session ID</dt>
+              <dd id="top-session-id">pending</dd>
+            </div>
+            <div>
+              <dt>LLM / MCP / Celery</dt>
+              <dd id="optional-status">optional</dd>
+            </div>
+          </dl>
+          <p class="muted-note">
+            不在前端保存真实 API key。LLM、MCP、Celery 均通过后端可选配置启用。
+          </p>
+        </section>
+
+        <section class="panel-block router-decision-block">
+          <div class="block-title">
+            <span>Router decision</span>
+            <span id="router-decision-source" class="badge badge-neutral">none</span>
+          </div>
+          <dl class="status-list compact-status">
+            <div>
+              <dt>Intent</dt>
+              <dd id="router-decision-intent">unknown</dd>
+            </div>
+            <div>
+              <dt>Confidence</dt>
+              <dd id="router-decision-confidence">n/a</dd>
+            </div>
+            <div>
+              <dt>Reason</dt>
+              <dd id="router-decision-reason">暂无路由决策</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="panel-block context-summary-block">
+          <div class="block-title">
+            <span>Context Summary</span>
+            <span id="context-summary-status" class="badge badge-neutral">empty</span>
+          </div>
+          <dl class="status-list compact-status" id="context-summary-list">
+            <div>
+              <dt>Datasource</dt>
+              <dd id="context-summary-datasource">none</dd>
+            </div>
+            <div>
+              <dt>Last intent</dt>
+              <dd id="context-summary-intent">unknown</dd>
+            </div>
+            <div>
+              <dt>Known fields</dt>
+              <dd id="context-summary-field-count">0</dd>
+            </div>
+            <div>
+              <dt>Artifacts</dt>
+              <dd id="context-summary-artifacts">0</dd>
+            </div>
+            <div>
+              <dt>Pending</dt>
+              <dd id="context-summary-pending">none</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="panel-block timeline-block">
+          <div class="block-title">
+            <span>SSE 事件</span>
+            <button id="load-events-btn" class="text-btn" type="button" disabled>刷新列表</button>
+          </div>
+          <div id="event-timeline" class="event-timeline"></div>
+        </section>
+
+        <section class="panel-block">
+          <div class="block-title">
+            <span>SQL</span>
+            <span id="sql-status" class="badge badge-neutral">empty</span>
+          </div>
+          <pre id="sql-output" class="code-box">等待分析结果</pre>
+        </section>
+
+        <section class="panel-block">
+          <div class="block-title">
+            <span>Artifact Preview</span>
+            <span id="artifact-preview-kind" class="badge badge-neutral">metadata</span>
+          </div>
+          <pre id="artifact-preview" class="code-box">点击 artifact 查看 metadata 或 JSON 预览</pre>
+        </section>
+
+        <section class="panel-block timing-block" id="timing-panel">
+          <div class="block-title">
+            <span>Timing</span>
+            <span id="timing-total-duration" class="badge badge-neutral">0 ms</span>
+          </div>
+          <p class="muted-note">LLM calls total: <span id="timing-llm-duration">0 ms</span></p>
+          <table class="timing-table" aria-label="Node timing summary">
+            <thead>
+              <tr>
+                <th>Step</th>
+                <th>Kind</th>
+                <th>ms</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="timing-table-body">
+              <tr><td colspan="4">暂无 timing 数据</td></tr>
+            </tbody>
+          </table>
+        </section>
+      </details>
+    </aside>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

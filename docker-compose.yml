@@ -1,0 +1,44 @@
+services:
+  api:
+    build:
+      context: .
+    env_file:
+      - .env.example
+    environment:
+      DATA_ANALYSIS_AGENT_RUNNER_BACKEND: memory
+      DATA_ANALYSIS_AGENT_API_HOST: 0.0.0.0
+      DATA_ANALYSIS_AGENT_API_PORT: "8000"
+      DATA_ANALYSIS_AGENT_DATASOURCE_URL: /app/demo/ecommerce_demo.sqlite
+      DATA_ANALYSIS_AGENT_DATASOURCE_ID: ecommerce-demo-sqlite
+      DATA_ANALYSIS_AGENT_ARTIFACT_DIR: /app/artifacts
+      DATA_ANALYSIS_AGENT_USE_FILE_ARTIFACT_STORE: "true"
+    command:
+      - python
+      - scripts/run_api.py
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --runner-backend
+      - memory
+      - --datasource-url
+      - /app/demo/ecommerce_demo.sqlite
+      - --artifact-dir
+      - /app/artifacts
+      - --use-file-artifact-store
+    ports:
+      - "8000:8000"
+    volumes:
+      - artifact_data:/app/artifacts
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  artifact_data:

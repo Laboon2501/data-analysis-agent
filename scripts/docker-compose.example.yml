@@ -1,0 +1,64 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: data_analysis_agent
+      POSTGRES_USER: data_analysis_agent
+      POSTGRES_PASSWORD: change-me-local-only
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  api:
+    image: python:3.11-slim
+    profiles: ["app"]
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace
+    ports:
+      - "8000:8000"
+    environment:
+      DATA_ANALYSIS_AGENT_RUNNER_BACKEND: celery
+      DATA_ANALYSIS_AGENT_USE_FILE_ARTIFACT_STORE: "true"
+      DATA_ANALYSIS_AGENT_REDIS_URL: redis://redis:6379/0
+      DATA_ANALYSIS_AGENT_CELERY_BROKER_URL: redis://redis:6379/0
+      DATA_ANALYSIS_AGENT_CELERY_RESULT_BACKEND: redis://redis:6379/1
+      DATA_ANALYSIS_AGENT_CELERY_QUEUE: data-analysis-agent
+      DATA_ANALYSIS_AGENT_POSTGRES_URL: postgresql+psycopg://data_analysis_agent:change-me-local-only@postgres:5432/data_analysis_agent
+      DATA_ANALYSIS_AGENT_ARTIFACT_DIR: /workspace/artifacts
+    depends_on:
+      - redis
+      - postgres
+    command: ["python", "scripts/run_api.py", "--host", "0.0.0.0", "--port", "8000"]
+
+  worker:
+    image: python:3.11-slim
+    profiles: ["app"]
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace
+    environment:
+      DATA_ANALYSIS_AGENT_CELERY_BROKER_URL: redis://redis:6379/0
+      DATA_ANALYSIS_AGENT_CELERY_RESULT_BACKEND: redis://redis:6379/1
+      DATA_ANALYSIS_AGENT_CELERY_QUEUE: data-analysis-agent
+      DATA_ANALYSIS_AGENT_CELERY_APP: app.workers.celery_app:celery_app
+      DATA_ANALYSIS_AGENT_REDIS_URL: redis://redis:6379/0
+      DATA_ANALYSIS_AGENT_POSTGRES_URL: postgresql+psycopg://data_analysis_agent:change-me-local-only@postgres:5432/data_analysis_agent
+      DATA_ANALYSIS_AGENT_ARTIFACT_DIR: /workspace/artifacts
+    depends_on:
+      - redis
+      - postgres
+    command: ["python", "scripts/run_worker.py", "--execute"]
+
+volumes:
+  redis-data:
+  postgres-data:

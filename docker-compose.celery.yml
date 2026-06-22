@@ -1,0 +1,119 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: daa
+      POSTGRES_USER: daa
+      POSTGRES_PASSWORD: local_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U daa -d daa"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+    env_file:
+      - .env.example
+    environment:
+      DATA_ANALYSIS_AGENT_RUNNER_BACKEND: celery
+      DATA_ANALYSIS_AGENT_API_HOST: 0.0.0.0
+      DATA_ANALYSIS_AGENT_API_PORT: "8000"
+      DATA_ANALYSIS_AGENT_REDIS_URL: redis://redis:6379/0
+      DATA_ANALYSIS_AGENT_CELERY_BROKER_URL: redis://redis:6379/0
+      DATA_ANALYSIS_AGENT_CELERY_RESULT_BACKEND: redis://redis:6379/1
+      DATA_ANALYSIS_AGENT_CHECKPOINT_URL: postgresql+psycopg://daa:local_dev_password@postgres:5432/daa
+      DATA_ANALYSIS_AGENT_SESSION_STORE: sqlalchemy
+      DATA_ANALYSIS_AGENT_SESSION_DB_URL: postgresql+psycopg://daa:local_dev_password@postgres:5432/daa
+      DATA_ANALYSIS_AGENT_DATASOURCE_URL: /app/demo/ecommerce_demo.sqlite
+      DATA_ANALYSIS_AGENT_DATASOURCE_ID: ecommerce-demo-sqlite
+      DATA_ANALYSIS_AGENT_ARTIFACT_DIR: /app/artifacts
+      DATA_ANALYSIS_AGENT_UPLOAD_DIR: /app/uploads
+      DATA_ANALYSIS_AGENT_MAX_UPLOAD_MB: "25"
+      DATA_ANALYSIS_AGENT_ALLOW_LOCAL_FILE_PATHS: "false"
+    command:
+      - python
+      - scripts/run_api.py
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --runner-backend
+      - celery
+      - --datasource-url
+      - /app/demo/ecommerce_demo.sqlite
+      - --artifact-dir
+      - /app/artifacts
+      - --upload-dir
+      - /app/uploads
+    ports:
+      - "8000:8000"
+    volumes:
+      - artifact_data:/app/artifacts
+      - upload_data:/app/uploads
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/runtime', timeout=3).read()"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: .
+    env_file:
+      - .env.example
+    environment:
+      DATA_ANALYSIS_AGENT_RUNNER_BACKEND: celery
+      DATA_ANALYSIS_AGENT_REDIS_URL: redis://redis:6379/0
+      DATA_ANALYSIS_AGENT_CELERY_BROKER_URL: redis://redis:6379/0
+      DATA_ANALYSIS_AGENT_CELERY_RESULT_BACKEND: redis://redis:6379/1
+      DATA_ANALYSIS_AGENT_CHECKPOINT_URL: postgresql+psycopg://daa:local_dev_password@postgres:5432/daa
+      DATA_ANALYSIS_AGENT_SESSION_STORE: sqlalchemy
+      DATA_ANALYSIS_AGENT_SESSION_DB_URL: postgresql+psycopg://daa:local_dev_password@postgres:5432/daa
+      DATA_ANALYSIS_AGENT_DATASOURCE_URL: /app/demo/ecommerce_demo.sqlite
+      DATA_ANALYSIS_AGENT_DATASOURCE_ID: ecommerce-demo-sqlite
+      DATA_ANALYSIS_AGENT_ARTIFACT_DIR: /app/artifacts
+      DATA_ANALYSIS_AGENT_UPLOAD_DIR: /app/uploads
+      DATA_ANALYSIS_AGENT_MAX_UPLOAD_MB: "25"
+      DATA_ANALYSIS_AGENT_ALLOW_LOCAL_FILE_PATHS: "false"
+    command:
+      - python
+      - scripts/run_worker.py
+      - --execute
+    volumes:
+      - artifact_data:/app/artifacts
+      - upload_data:/app/uploads
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+volumes:
+  artifact_data:
+  upload_data:
+  postgres_data:
