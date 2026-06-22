@@ -32,6 +32,9 @@ jobs:
       - name: Ruff format check
         run: python -m ruff format --check .
 
+      - name: Create demo database
+        run: python scripts/create_demo_db.py --output demo/ecommerce_demo.sqlite
+
       - name: Pytest
         run: python -m pytest
 
