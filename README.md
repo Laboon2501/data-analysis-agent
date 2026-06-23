@@ -12,14 +12,10 @@ Python 要求：`>=3.11,<3.14`
 - [项目定位](#项目定位)
 - [快速开始](#快速开始)
 - [Web 工作台](#web-工作台)
-- [API 端点](#api-端点)
 - [环境变量](#环境变量)
 - [数据源](#数据源)
 - [LLM 配置](#llm-配置)
-- [典型流程](#典型流程)
-- [评估与测试](#评估与测试)
 - [MCP](#mcp)
-- [Celery / Redis / Postgres](#celery--redis--postgres)
 - [项目结构](#项目结构)
 - [安全边界](#安全边界)
 - [已知限制](#已知限制)
@@ -407,35 +403,4 @@ MCP 安全边界：
 
 当前仓库未检测到 `LICENSE` 文件。发布前建议明确 license，并同步 `docs/third_party_notices.md` 中的上游来源说明。
 
-## Release / CI Compatibility Notes
 
-Compatibility label: v0.2.0-alpha technical preview.
-
-This Chinese README is the GitHub homepage, and it keeps the English release
-anchors used by CI documentation checks: Architecture Overview, Directory Structure,
-Quick Start, Demo Database, FastAPI Memory Backend, Eval And Tests,
-Optional Smoke Tests, and Safety Boundaries. Core safety terms: SQLGuard,
-artifact, fast-path.
-
-Install and verify locally:
-
-```bash
-python -m pip install -e ".[dev]"
-python -m pytest
-python -m evals.runner
-python -m ruff check .
-python -m ruff format --check .
-python scripts/create_demo_db.py
-python scripts/run_demo_flow.py
-python scripts/run_api.py
-python scripts/run_llm_smoke.py
-python scripts/run_llm_eval.py
-python scripts/run_mcp_smoke.py
-python scripts/run_integration_smoke.py
-python examples/client/minimal_client.py
-python examples/client/demo_flow_client.py
-docker compose up --build api
-docker compose -f docker-compose.celery.yml up --build
-```
-
-Deployment notes: docs/deployment.md.
