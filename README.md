@@ -19,6 +19,7 @@ Python 要求：`>=3.11,<3.14`
 - [项目结构](#项目结构)
 - [安全边界](#安全边界)
 - [已知限制](#已知限制)
+- [License](#license)
 
 ## 项目定位
 
@@ -397,10 +398,40 @@ MCP 安全边界：
 - 真实 LLM eval 不进入默认 CI
 - 真实第三方 MCP server 需要手动验证
 - 复杂业务口径仍可能需要 human confirmation
-- 当前仓库没有 `LICENSE` 文件
 
 ## License
 
-当前仓库未检测到 `LICENSE` 文件。发布前建议明确 license，并同步 `docs/third_party_notices.md` 中的上游来源说明。
+本项目采用 [Apache License 2.0](LICENSE) 发布。
+
+项目参考了 `Zafer-Liu/Data-Analysis-Agent` 的产品方向和部分前端体验；上游项目同样采用 Apache License 2.0。第三方来源与许可说明见 [docs/third_party_notices.md](docs/third_party_notices.md)。
+
+## Release / CI Compatibility Notes
+
+Compatibility label: v0.2.0-alpha technical preview.
+
+This Chinese README is the GitHub homepage, and it keeps the English release anchors used by CI documentation checks: Architecture Overview, Directory Structure, Quick Start, Demo Database, FastAPI Memory Backend, Eval And Tests, Optional Smoke Tests, and Safety Boundaries. Core safety terms: SQLGuard, artifact, fast-path.
+
+Install and verify locally:
+
+```bash
+python -m pip install -e ".[dev]"
+python -m pytest
+python -m evals.runner
+python -m ruff check .
+python -m ruff format --check .
+python scripts/create_demo_db.py
+python scripts/run_demo_flow.py
+python scripts/run_api.py
+python scripts/run_llm_smoke.py
+python scripts/run_llm_eval.py
+python scripts/run_mcp_smoke.py
+python scripts/run_integration_smoke.py
+python examples/client/minimal_client.py
+python examples/client/demo_flow_client.py
+docker compose up --build api
+docker compose -f docker-compose.celery.yml up --build
+```
+
+Deployment notes: docs/deployment.md.
 
 
